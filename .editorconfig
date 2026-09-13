@@ -1,0 +1,22 @@
+## top-most EditorConfig file
+root = true
+
+## Unix-style newlines with a newline ending every file
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 2
+indent_style = tab
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+## Shell scripts
+[*.sh]
+indent_size = 2
+indent_style = space
+max_line_length = 79
+switch_case_indent = true       # shfmt: -ci
+
+## Prose and structured text
+[*.md]
+indent_style = space

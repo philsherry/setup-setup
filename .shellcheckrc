@@ -1,0 +1,19 @@
+## https://github.com/koalaman/shellcheck/
+## https://github.com/koalaman/shellcheck/#gallery-of-bad-code
+## https://github.com/koalaman/shellcheck/wiki/Checks
+## https://gist.github.com/nicerobot/53cee11ee0abbdc997661e65b348f375
+## http://mywiki.wooledge.org/BashPitfalls
+
+## Enable all checks, including optional ones.
+enable=all
+
+## Allow repo-specific runtime variables and known pipeline patterns.
+disable=SC2154,SC2310,SC2312
+
+## Add the script directory to the search path for source statements.
+source-path=SCRIPTDIR
+
+## This is safe for local repository development and helps ShellCheck follow
+## sourced files across the checked workspace.
+external-sources=true
+includeAllWorkspaceSymbols=true

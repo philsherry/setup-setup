@@ -1,0 +1,31 @@
+{
+	"author": {
+		"email": "philsherry@mac.com",
+		"name": "Phil Sherry",
+		"url": "https://philsherry.com"
+	},
+	"bugs": {
+		"url": "https://github.com/philsherry/setup-setup/issues"
+	},
+	"description": "Day-0 bootstrap for a blank Mac, public so it can be cloned before any SSH/GitHub auth exists.",
+	"devDependencies": {
+		"markdownlint-cli": "^0.49.1"
+	},
+	"engines": {
+		"node": ">= 24"
+	},
+	"homepage": "https://github.com/philsherry/setup-setup#readme",
+	"name": "setup-setup",
+	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/philsherry/setup-setup.git"
+	},
+	"scripts": {
+		"format:sh": "shfmt -w bootstrap.sh",
+		"lint": "npm run lint:md && npm run lint:sh",
+		"lint:md": "markdownlint --config .markdownlint.yaml README.md",
+		"lint:sh": "shellcheck bootstrap.sh && shfmt -d bootstrap.sh"
+	},
+	"version": "0.1.0"
+}
