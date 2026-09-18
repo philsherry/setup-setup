@@ -146,7 +146,13 @@ fi
 
 log_step 'Minimal formula/cask set'
 
-formulae=(stow asdf gh git gnupg pinentry-mac)
+## `bash` is required here, not just in the host Brewfiles: setup-dotfiles'
+## bootstrap scripts use bash 4+ features (associative arrays, mapfile) and
+## are invoked via a bare `bash`, which resolves to macOS's ancient system
+## bash (3.2) until Homebrew's bash is installed and first on PATH. Nothing
+## in install.sh runs `brew bundle install` automatically, so this has to be
+## the thing that gets it here before setup-dotfiles ever runs.
+formulae=(stow asdf gh git gnupg pinentry-mac bash)
 casks=(1password 1password-cli)
 
 for formula in "${formulae[@]}"; do
