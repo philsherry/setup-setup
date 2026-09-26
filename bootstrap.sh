@@ -15,17 +15,21 @@
 ##   ./bootstrap.sh --skip-clone
 ##
 ## What it does, in order:
-##   1. Prompts for Xcode Command Line Tools if missing.
+##   1. Makes sure the Xcode Command Line Tools work, by compiling and linking
+##      a test program rather than trusting that a directory exists.
 ##   2. Installs Homebrew if missing, and fixes Cellar ownership on Apple
 ##      Silicon (a fresh `sudo` install otherwise leaves it root-owned).
 ##   3. Installs the minimal formula/cask set needed to get any further:
-##      stow, asdf, gh, git, gnupg, pinentry-mac, 1password, 1password-cli.
+##      stow, asdf, gh, git, gnupg, pinentry-mac, bash, bun, neovim, ripgrep,
+##      fd, fzf, 1password, 1password-cli, kitty, visual-studio-code.
 ##   4. Walks through enabling 1Password's SSH agent (GUI step, not
 ##      automatable) and verifies `ssh -T git@github.com` works.
 ##   5. Falls back to `gh auth login` (browser device flow, HTTPS-only, no
 ##      SSH key needed) if SSH auth isn't set up yet.
 ##   6. Clones setup-mac, setup-dotfiles, and setup-neovim to their usual
-##      locations, then hands off to setup-dotfiles/install.sh.
+##      locations, then hands off to the setup-mac orchestrator
+##      (bin/install-setup.sh), which runs the dotfiles switch, Homebrew
+##      bundle, asdf and Neovim in the right order.
 ##
 ## Nothing here is machine-specific and nothing here is secret. Nothing
 ## generates or imports key material — that stays a manual, deliberate step
@@ -34,17 +38,24 @@
 
 set -uo pipefail
 
+## Every setup-* repo lives in one root, PHILSHERRY, and nothing goes in $HOME.
+## Set it here, before anything else: on day 0 there are no dotfiles to export it.
+## An explicit value wins, so a machine can keep its repos elsewhere.
+export PHILSHERRY="${PHILSHERRY:-${HOME}/Projects/philsherry}"
+
 dry_run=0
 skip_clone=0
+check_toolchain_only=0
 
 usage() {
   cat <<EOF
 Usage: ${0##*/} [options]
 
 Options:
-  -n, --dry-run       Report what would happen, change nothing.
-      --skip-clone    Do everything except cloning the private repos.
-  -h, --help          Show this help.
+  -n, --dry-run          Report what would happen, change nothing.
+      --skip-clone       Do everything except cloning the private repos.
+      --check-toolchain  Only check that a C program compiles and links, then exit.
+  -h, --help             Show this help.
 EOF
 }
 
@@ -60,6 +71,10 @@ while (($#)); do
       ;;
     --skip-clone)
       skip_clone=1
+      shift
+      ;;
+    --check-toolchain)
+      check_toolchain_only=1
       shift
       ;;
     *)
@@ -99,23 +114,85 @@ run() {
   "$@"
 }
 
+## Prove the C toolchain works by compiling and linking a one-line program.
+##
+## `xcode-select -p` only proves a directory exists, and `xcrun --find clang` /
+## `xcrun --show-sdk-path` exit 0 even when SDKROOT points at a path that does
+## not exist (xcrun echoes it back), so none of them say whether builds will
+## work. This is a deliberate copy of setup-mac/bin/lib/toolchain.sh: this repo
+## runs before setup-mac can be cloned. Keep the two in step.
+##
+## TOOLCHAIN_CC overrides the compiler so tests can stand in for it.
+toolchain_check() {
+  local cc="${TOOLCHAIN_CC:-/usr/bin/clang}"
+  local work_dir=''
+  local built=1
+  local compile_output=''
+
+  work_dir="$(mktemp -d)" || return 1
+  printf 'int main(void) { return 0; }\n' >"${work_dir}/probe.c"
+
+  compile_output="$("${cc}" "${work_dir}/probe.c" -o "${work_dir}/probe" 2>&1)"
+  built=$?
+
+  rm -rf "${work_dir}"
+
+  ((built == 0)) && return 0
+
+  # An unaccepted Xcode licence beats every other cause: the Command Line Tools
+  # are fine, so reinstalling them (or fixing SDKROOT) cannot help.
+  if [[ ${compile_output} == *"agreed to the Xcode license"* ]]; then
+    printf 'The Xcode licence has not been accepted, so clang refuses to run.\n' >&2
+    printf 'Accept it with: sudo xcodebuild -license accept   (or open Xcode.app once and agree), then re-run.\n' >&2
+  elif [[ -n ${SDKROOT:-} && ! -d ${SDKROOT} ]]; then
+    printf 'SDKROOT points at %s, which does not exist, so C programs cannot be linked.\n' "${SDKROOT}" >&2
+    printf 'Unset SDKROOT, or install what it points at. It is usually exported by a shell startup file.\n' >&2
+  else
+    printf 'Cannot compile and link a C program. Install the Xcode Command Line Tools (xcode-select --install) and re-run.\n' >&2
+  fi
+
+  return 1
+}
+
+if ((check_toolchain_only)); then
+  toolchain_check
+  exit $?
+fi
+
 ## 1. Xcode Command Line Tools ------------------------------------------------
 
 log_step 'Xcode Command Line Tools'
 
-if xcode-select -p >/dev/null 2>&1; then
-  pass "Already installed at $(xcode-select -p)."
+toolchain_report="$(toolchain_check 2>&1)" && toolchain_ok=1 || toolchain_ok=0
+
+if ((toolchain_ok)); then
+  pass 'The C toolchain compiles and links.'
+elif [[ ${toolchain_report} == *'Xcode licence has not been accepted'* ]]; then
+  ## The tools are installed and fine; only the licence stands in the way.
+  printf '%s\n' "${toolchain_report}" >&2
+  ((dry_run)) || die 'Accept the Xcode licence first; installing the Command Line Tools will not help.'
+elif [[ -n ${SDKROOT:-} && ! -d ${SDKROOT} ]]; then
+  ## Reinstalling the tools cannot fix a bad variable, so say so instead of
+  ## sending the user round the installer again.
+  toolchain_check || true
+  ((dry_run)) || die 'Fix SDKROOT first; installing the Command Line Tools will not help.'
+elif ((dry_run)); then
+  status 'The C toolchain does not work yet.'
+  printf '[dry-run] xcode-select --install\n'
 else
-  status 'Not installed. Triggering the GUI installer...'
-  if ((dry_run)); then
-    printf '[dry-run] xcode-select --install\n'
-  else
-    xcode-select --install || true
-    printf 'Waiting for Xcode Command Line Tools to finish installing.\n'
-    printf 'Complete the GUI installer, then press Enter to continue.\n'
+  status 'The C toolchain does not work yet. Triggering the GUI installer...'
+  attempts=0
+  until toolchain_check 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if ((attempts > 3)); then
+      toolchain_check || true
+      die 'Still cannot build a C program. If the tools are damaged, remove and reinstall them: sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install'
+    fi
+    xcode-select --install 2>/dev/null || true
+    printf 'Complete the GUI installer, then press Enter to check again.\n'
     read -r _
-    xcode-select -p >/dev/null 2>&1 || die 'Xcode Command Line Tools still not detected.'
-  fi
+  done
+  pass 'The C toolchain compiles and links.'
 fi
 
 ## 2. Homebrew -----------------------------------------------------------------
@@ -152,8 +229,22 @@ log_step 'Minimal formula/cask set'
 ## bash (3.2) until Homebrew's bash is installed and first on PATH. Nothing
 ## in install.sh runs `brew bundle install` automatically, so this has to be
 ## the thing that gets it here before setup-dotfiles ever runs.
-formulae=(stow asdf gh git gnupg pinentry-mac bash)
-casks=(1password 1password-cli)
+##
+## `bun` is here because Claude Code plugin hooks (claude-mem) run it from a
+## non-interactive shell, where asdf's shims may not be on PATH. Homebrew's
+## /opt/homebrew/bin always is. asdf still pins the version for projects.
+##
+## `neovim ripgrep fd fzf` are the Neovim requirements that Homebrew owns.
+## `node`, `lua` and `luarocks` are deliberately absent: asdf owns language
+## runtimes (setup-dotfiles README, "Who installs what"), and Neovim's preflight
+## expects the asdf-managed Lua and its LuaRocks. The orchestrator installs them
+## before that preflight; a Homebrew copy would only be shadowed.
+##
+## `kitty` and `visual-studio-code` are the terminal and editor, wanted from the
+## first login. Build dependencies for asdf plugins (autoconf, icu4c, ...) are not
+## listed here: setup-mac's asdf-install.sh owns them per plugin.
+formulae=(stow asdf gh git gnupg pinentry-mac bash bun neovim ripgrep fd fzf)
+casks=(1password 1password-cli kitty visual-studio-code)
 
 for formula in "${formulae[@]}"; do
   if ! ((dry_run)) && "${brew_bin}" list --formula "${formula}" >/dev/null 2>&1; then
@@ -206,10 +297,10 @@ log_step 'Clone private repos'
 
 if ((skip_clone)); then
   status 'Skipping clone step (--skip-clone).'
-elif ((dry_run)); then
-  status 'Skipping clone step in dry-run mode.'
 else
-  projects_root="${HOME}/Projects/philsherry"
+  ## A dry run still walks this step: `run` prints each clone instead of doing it,
+  ## which shows where every repo would land.
+  projects_root="${PHILSHERRY}"
   run mkdir -p "${projects_root}"
 
   clone_repo() {
@@ -232,7 +323,7 @@ else
     run git clone "${url}" "${dest}"
   }
 
-  clone_repo setup-mac "${HOME}/.setup-mac"
+  clone_repo setup-mac "${projects_root}/setup-mac"
   clone_repo setup-dotfiles "${projects_root}/setup-dotfiles"
   clone_repo setup-neovim "${projects_root}/setup-neovim"
 fi
@@ -241,12 +332,23 @@ fi
 
 log_step 'Done'
 
-cat <<'EOF'
-Day-0 bootstrap complete. From here:
+## The repos were cloned over https when the gh fallback was used, and the
+## orchestrator needs to know, or it would try ssh for updates.
+https_flag=''
+[[ "${auth_mode:-ssh}" == 'https' ]] && https_flag=' --https'
 
-  cd ~/Projects/philsherry/setup-dotfiles
-  ./install.sh --dry-run --machine <imac|max|mini|studio|employer-mac>
-  ./install.sh --machine <imac|max|mini|studio|employer-mac>
+cat <<EOF
+Day-0 bootstrap complete. Now run the setup-mac orchestrator, once:
 
-That takes over the rest of the machine setup.
+  bash ${PHILSHERRY}/setup-mac/bin/install-setup.sh --machine-profile <studio|max|mini|employer-mac>${https_flag}
+
+A new Mac isn't renamed to its registered name yet, so say which machine this is;
+the personal or employer flavour follows from it.
+
+Early on, right after the dotfiles are in place, it will set this Mac's registered name.
+It will ask for your password to do that, once.
+
+That runs the dotfiles switch (stow), Homebrew bundle, asdf and Neovim in the right
+order. Don't also run setup-dotfiles/install.sh: both run the same stow step, and
+running both is what causes symlink conflicts.
 EOF
