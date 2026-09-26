@@ -139,6 +139,7 @@ for repo in setup-mac setup-dotfiles setup-neovim; do
   assert_contains "clones ${repo} into the projects root" "${clone_run}" "${repo}.git ${projects_root}/${repo}"
 done
 
+# shellcheck disable=SC2016 # the single quotes are deliberate: $HOME is the literal text of the test name
 assert_not_contains 'does not clone anything into a hidden folder in $HOME' "${clone_run}" '/.setup-mac'
 assert_contains 'the hand-off runs the orchestrator from the projects root' "${clone_run}" "${projects_root}/setup-mac/bin/install-setup.sh"
 
