@@ -126,14 +126,16 @@ run() {
 toolchain_check() {
   local cc="${TOOLCHAIN_CC:-/usr/bin/clang}"
   local work_dir=''
-  local built=1
+  local built=0
   local compile_output=''
 
   work_dir="$(mktemp -d)" || return 1
   printf 'int main(void) { return 0; }\n' >"${work_dir}/probe.c"
 
-  compile_output="$("${cc}" "${work_dir}/probe.c" -o "${work_dir}/probe" 2>&1)"
-  built=$?
+  # `|| built=$?`, not a bare assignment: this file runs without errexit, but the copy
+  # in setup-mac runs under callers' `set -e`, where a failing command substitution
+  # ends the function before it can say why. Keep the two the same.
+  compile_output="$("${cc}" "${work_dir}/probe.c" -o "${work_dir}/probe" 2>&1)" || built=$?
 
   rm -rf "${work_dir}"
 
