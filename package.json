@@ -24,10 +24,11 @@
 	"scripts": {
 		"asdf:install": "asdf install",
 		"format": "npm run format:sh",
-		"format:sh": "shfmt -w bootstrap.sh",
+		"format:sh": "shfmt -w bootstrap.sh test-bootstrap.sh",
 		"lint": "npm run lint:md && npm run lint:sh",
 		"lint:md": "markdownlint --config .markdownlint.yaml README.md",
-		"lint:sh": "shellcheck bootstrap.sh && shfmt -d bootstrap.sh"
+		"lint:sh": "shellcheck bootstrap.sh test-bootstrap.sh && shfmt -d bootstrap.sh test-bootstrap.sh",
+		"test": "bash ./test-bootstrap.sh"
 	},
 	"version": "0.1.0"
 }
